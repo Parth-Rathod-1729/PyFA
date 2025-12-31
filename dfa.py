@@ -1,11 +1,10 @@
-
 # StateError
 # InputSymbolError
 # TransitionError
 # MiscError
 
-#TODO: remove the '_' not being able to be used as a transition symbol, Handle the minimisation without the use of '_' (use list of tuples/list perhaps)
 #TODO: Add the TransitionSymbol or TerminalSymbol class that is able to use any string/Integer/Float/(Potentially any Python Object) as a transition symbol (Goal: Markov Chains)
+     # The object of the TransitionSymbol or the TerminalSymbol must be hashable as they are used as keys in many dictionaries
 #TODO: Add the Error handling with above 4 errors to start with
 
 class State:
@@ -20,11 +19,8 @@ class State:
             raise Exception(f"StateError: Outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions( < outgoingTransitions > ) for setting the outgoing transitions. ")
 
         tempInpSymList = list(self.outTransitions.keys())
-        if all(list(map(lambda inpSym: len(inpSym) == 1,tempInpSymList))):  # checks if all inputSymbol are of single length or not
-            if not all(list(map(lambda inpSym: inpSym != "_",tempInpSymList))):  # this DFA implementation will not allow "_" to be a valid inputSymbol as we are using it in the minimisation algorithm (this will change in the future)
-                raise Exception(f"InputSymbolError: '_' are not allowed to be a valid input symbol in this DFA implementation. (State => '{self.name}') ")
-        else:
-            raise Exception("InputSymbolError: length of input symbol must be exactly 1. ")
+        if not all(list(map(lambda inpSym: len(inpSym) == 1,tempInpSymList))):
+            raise Exception("InputSymbolError: length of input symbol must be exactly 1.")
 
         if inputSymbols is not None:
             if set(inputSymbols) != set(tempInpSymList):
@@ -151,7 +147,7 @@ class DFA:
         else:
             print(f"'{inputStr}': Rejected")
             return False
-          
+
     def removeUnreachable(self):
         visited = {self.initialState}
         BFSqueue = [self.initialState]
@@ -175,29 +171,30 @@ class DFA:
             if state_ in partition[i]:
                 return i
         return None
-
-    def _make_STS(self, state_, partition):
-        setTransitionSubstrings = []
+        
+    def _make_TSTT(self, state_, partition):
+        setTransitionTuples = []
         for inpSym in self.inputSymbols:
             setIdx = self._findSetIdxOf(state_.goto(inpSym), partition)
             if setIdx is None:
-                return None
-            setTransitionSubstrings.append(f"{inpSym}_{setIdx}")
-        return "__".join(setTransitionSubstrings)
+                return tuple([None])
+            setTransitionTuples.append(tuple([inpSym, setIdx]))
+        return tuple(setTransitionTuples)
+
 
     def _refinePartition(self, partition):
         refinedPartition = []
         for SL in partition:
-            CSSLeaderSTS_CSS = {
-                self._make_STS(SL[0], partition): [SL[0]]
+            CSSLeaderTSTT_CSS = {
+                self._make_TSTT(SL[0], partition): [SL[0]]
             }
             for state_ in SL[1:]:
-                state_STS = self._make_STS(state_, partition)
-                if state_STS in CSSLeaderSTS_CSS:
-                    CSSLeaderSTS_CSS[state_STS].append(state_)
+                state_TSTT = self._make_TSTT(state_, partition)
+                if state_TSTT in CSSLeaderTSTT_CSS:
+                    CSSLeaderTSTT_CSS[state_TSTT].append(state_)
                 else:
-                    CSSLeaderSTS_CSS[state_STS] = [state_]
-            refinedPartition.extend(list(CSSLeaderSTS_CSS.values()))
+                    CSSLeaderTSTT_CSS[state_TSTT] = [state_]
+            refinedPartition.extend(list(CSSLeaderTSTT_CSS.values()))
 
         return refinedPartition
 
@@ -229,24 +226,17 @@ class DFA:
             curPartition = self._refinePartition(curPartition)
             i += 1
             print(f"PI_{i}: ", self._printablePartition(curPartition))
-
         print()
         mDFA_SNT = {}
         mDFA_names = []
-        mDFA_STS = []
+        mDFA_listOfTSTT = []
         for SL in curPartition:
-            # each SL will be a state in mDFA
             mDFA_names.append("".join([state_.name for state_ in SL]))
-            mDFA_STS.append(self._make_STS(SL[0], curPartition))
-
-        for stateName, state_STS in zip(mDFA_names, mDFA_STS):
-            STS_transitions = list(state_STS.split("__")) 
-            SNT_valueDict = {}
-            inpSym_setIdx_tupleList = []
-            for STS_transition in STS_transitions:
-                inpSym_setIdx_tupleList.append( ( STS_transition.split("_")[0], int(STS_transition.split("_")[1]) ) )
-            for transitionTuple in inpSym_setIdx_tupleList:
-                SNT_valueDict[transitionTuple[0]] = mDFA_names[transitionTuple[1]]
+            mDFA_listOfTSTT.append(self._make_TSTT(SL[0], curPartition))
+        for stateName, state_TSTT in zip(mDFA_names, mDFA_listOfTSTT):
+            SNT_valueDict = dict()
+            for setTransitionTuple in state_TSTT:
+                SNT_valueDict[setTransitionTuple[0]] = mDFA_names[setTransitionTuple[1]]
             mDFA_SNT[stateName] = SNT_valueDict
 
         mDFA_initial = mDFA_names[self._findSetIdxOf(self.initialState, curPartition)]
