@@ -1,47 +1,67 @@
 from __future__ import annotations
 from typing import Any
+
+
 # StateError
 # TransitionSymbolError
-# TransitionError
 # MiscError
 
-#TODO: Add Feature: TransitionSymbol can be a dictionary or any python object (userDefined or built-in)
-#TODO: Add the Error handling with above 4 errors to start with
+#TODO: Add the Error handling with above 3 errors to start with
 
 class TransitionSymbol:
+
     def __init__(self, symbolValue):
         self.symbolValue = symbolValue
 
     def __repr__(self):
-        return self.symbolValue.__repr__()
+        return f"TransitionSymbol< {self.symbolValue.__str__()} >"
 
-    def __hash__(self):
-        if isinstance(self.symbolValue, list) or isinstance(self.symbolValue, set):
-            return hash(tuple(self.symbolValue))
+    def __str__(self):
+        return self.symbolValue.__repr__()
+        
+    @staticmethod
+    def _flattenDict(flatable: dict[Any, Any]) -> tuple[tuple[Any]]:
+        flattened = list()
+        for key, value in sorted(flatable.items(), key=lambda kvPair: str(kvPair[0])):
+            if isinstance(value, dict):
+                flattened.append((key, TransitionSymbol._flattenDict(value)))
+            else:
+                flattened.append((key, value))
+        return tuple(flattened)
+
+    def __hash__(self) -> int:
         try:
-            return hash(self.symbolValue)
-        except TypeError as err:
-            print("___+++ TypeError +++___")
+            return self.symbolValue.__hash__()
+        except:
+            if isinstance(self.symbolValue, (list, set)):
+                return hash(tuple(self.symbolValue))
+            if isinstance(self.symbolValue, dict):
+                return hash(TransitionSymbol._flattenDict(self.symbolValue))
+            if type(self.symbolValue).__module__ != "builtins":
+                return hash(TransitionSymbol._flattenDict(self.symbolValue.__dict__))
+            print(f"TransitionSymbolWarning: The TransitionSymbol({self.symbolValue}) could not be hashed. Unexpected Errors may occur")
             return id(self)
 
-    def __eq__(self, other):
+    def __eq__(self, other: TransitionSymbol | Any) -> bool:
         if isinstance(other, TransitionSymbol):
             return self.symbolValue == other.symbolValue
         else:
             return self.symbolValue == other
 
+
 class State:
-    def __init__(self, name: str, isFinal: bool = False, isInitial: bool = False, outTransitions: dict[TransitionSymbol, State] | dict[Any, State] = None):
+    def __init__(self, name: str, isFinal: bool = False, isInitial: bool = False,
+                 outTransitions: dict[TransitionSymbol, State] | dict[Any, State] = None):
         self.name = name
         self.outTransitions = outTransitions
         self.isFinal = isFinal
         self.isInitial = isInitial
-         
+
     def validate(self, inputSymbols: list[TransitionSymbol] | list[Any] = None) -> bool:
         # we just need to validate the outgoing transitions
         if self.outTransitions is None:
             raise Exception(f"StateError: Outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions( < outgoingTransitions > ) for setting the outgoing transitions. ")
-             
+
         tempInpSymList = list(self.outTransitions.keys())
         for i in range(len(tempInpSymList)):
             if not isinstance(tempInpSymList[i], TransitionSymbol):
@@ -51,19 +71,22 @@ class State:
             for i in range(len(inputSymbols)):
                 if not isinstance(inputSymbols[i], TransitionSymbol):
                     inputSymbols[i] = TransitionSymbol(inputSymbols[i])
+
+            if any(map(lambda sym: sym == TransitionSymbol("Epsilon"), [*inputSymbols, *tempInpSymList])):
+                raise Exception(f"TransitionSymbolError: Epsilon / NULL transition symbol is not allowed as a state's transition symbol\n\tProvided: {inputSymbols}\n\tOutgoing: {tempInpSymList}")
+
             set_tempInpSymList = set(tempInpSymList)
             set_inputSymbols = set(inputSymbols)
             if set_inputSymbols != set_tempInpSymList:
                 raise Exception(f"TransitionSymbolError: the state '{self.name}' has different set of transition symbols than provided\n\tProvided: {inputSymbols}\n\tOutgoing: {tempInpSymList}")
-                 
         for inpSym, state_ in self.outTransitions.items():
             if not isinstance(state_, State):
                 raise Exception(f"StateError: {self.name} -- {inpSym} --> [] is not a State. ")
-        return True # this state is a valid DFA state
+        return True  # this state is a valid DFA state
 
     def setTransitions(self, outTransitions: dict[TransitionSymbol, State] | dict[str, State]) -> None:
         TransitionSymbol_state_mapping = dict()
-        for key,value in outTransitions.items():
+        for key, value in outTransitions.items():
             if not isinstance(key, TransitionSymbol):
                 TransitionSymbol_state_mapping[TransitionSymbol(key)] = value
             else:
@@ -103,11 +126,11 @@ class DFA:
             ret += f"{inpSym} | "
         dashLength = len(ret)
         ret += "\n"
-        ret += "-"*dashLength
+        ret += "-" * dashLength
         ret += "\n"
         ret = f'{"-" * dashLength}\n' + ret
 
-        for state_ in sorted(self.states, key = lambda state_: state_.name):
+        for state_ in sorted(self.states, key=lambda state_: state_.name):
             prefix = "  "
             suffix = "   "
             if state_.isInitial and not state_.isFinal:
@@ -124,7 +147,7 @@ class DFA:
                 ret += f"{state_.outTransitions[inpSym].name} | "
             ret += "\n"
 
-        ret += "-"*dashLength
+        ret += "-" * dashLength
         ret += "\n"
 
         return ret
@@ -149,7 +172,7 @@ class DFA:
             for state_ in self.states:
                 self.stateNtransitions[state_.name] = state_.outTransitions
 
-        return True # this DFA is valid
+        return True  # this DFA is valid
 
     def define(self, stateNtransitions: dict[str, dict[str, str]] | dict[str, dict[TransitionSymbol, str]] | dict[str, dict[Any, str]], initial: str, finals: list[str]) -> None:
         name_state_mapping: dict[str, State] = {}
@@ -164,7 +187,7 @@ class DFA:
         for name, transitions in stateNtransitions.items():
             outTransition = {TransitionSymbol(inpSymbol): name_state_mapping[stateName] for inpSymbol, stateName in transitions.items()}
             name_state_mapping[name].setTransitions(outTransition)
-            if name_state_mapping[name].isInitial :
+            if name_state_mapping[name].isInitial:
                 self.initialState = name_state_mapping[name]
 
         self.states = list(name_state_mapping.values())
@@ -173,7 +196,7 @@ class DFA:
         self.stateNtransitions = stateNtransitions
 
     def check(self, inputTransitionSymbolSequence: list[TransitionSymbol] | list[Any] | str) -> bool:
-        if len(inputTransitionSymbolSequence) == 0:
+        if len(inputTransitionSymbolSequence) == 0 or any(map(lambda sym: sym == TransitionSymbol("Epsilon"), inputTransitionSymbolSequence)):
             raise Exception("TransitionSymbolError: Epsilon transition not in DFA")
         firstTransitionSymbol = inputTransitionSymbolSequence[0]
         if isinstance(firstTransitionSymbol, TransitionSymbol):
@@ -203,9 +226,9 @@ class DFA:
                 if neighbourState not in visited:
                     BFSqueue.append(neighbourState)
                     visited |= {neighbourState}
-        self.states = sorted(list(visited), key = lambda state_: state_.isInitial, reverse=True)
+        self.states = sorted(list(visited), key=lambda state_: state_.isInitial, reverse=True)
 
-    def _getStateWithName(self, name_: str) -> State | None:
+    def getStateWithName(self, name_: str) -> State | None:
         for state_ in self.states:
             if state_.name == name_:
                 return state_
@@ -217,16 +240,14 @@ class DFA:
             if state_ in partition[i]:
                 return i
         return None
-         
     def _make_TSTT(self, state_: State, partition: list[list[State]]) -> tuple[tuple[TransitionSymbol, int]] | tuple[None]:
         setTransitionTuples = []
         for inpSym in self.inputSymbols:
             setIdx = self._findSetIdxOf(state_.goto(inpSym), partition)
             if setIdx is None:
                 return (None,)
-            setTransitionTuples.append(tuple([inpSym, setIdx]))
-        return tuple(setTransitionTuples) # TSTT
-
+            setTransitionTuples.append((inpSym, setIdx))
+        return tuple(setTransitionTuples)
 
     def _refinePartition(self, partition: list[list[State]]) -> list[list[State]]:
         refinedPartition = []
@@ -237,10 +258,8 @@ class DFA:
             for state_ in SL[1:]:
                 state_TSTT = self._make_TSTT(state_, partition)
                 if state_TSTT in CSSLeaderTSTT_CSS:
-                    # add to an existing set
                     CSSLeaderTSTT_CSS[state_TSTT].append(state_)
                 else:
-                    # spawn a new CSS
                     CSSLeaderTSTT_CSS[state_TSTT] = [state_]
             refinedPartition.extend(list(CSSLeaderTSTT_CSS.values()))
 
@@ -257,7 +276,7 @@ class DFA:
     def minimise(self) -> None:
         self.removeUnreachable()
         print(self)
-        PI_0 = [[],[]]
+        PI_0 = [[], []]
 
         for state_ in self.states:
             PI_0[state_.isFinal].append(state_)
@@ -276,7 +295,6 @@ class DFA:
             print(f"PI_{i}: ", self._printablePartition(curPartition))
 
         print()
-         
         mDFA_SNT = {}
         mDFA_names = []
         mDFA_listOfTSTT = []
@@ -284,12 +302,13 @@ class DFA:
             # each SL will be a state in mDFA
             mDFA_names.append("".join([state_.name for state_ in SL]))
             mDFA_listOfTSTT.append(self._make_TSTT(SL[0], curPartition))
+
         for stateName, state_TSTT in zip(mDFA_names, mDFA_listOfTSTT):
             SNT_valueDict = dict()
             for setTransitionTuple in state_TSTT:
                 SNT_valueDict[setTransitionTuple[0]] = mDFA_names[setTransitionTuple[1]]
             mDFA_SNT[stateName] = SNT_valueDict
-             
+            
         mDFA_initial = mDFA_names[self._findSetIdxOf(self.initialState, curPartition)]
-        mDFA_finals = list( { mDFA_names[self._findSetIdxOf(finalState_, curPartition)] for finalState_ in self.finals} )
+        mDFA_finals = list({mDFA_names[self._findSetIdxOf(finalState_, curPartition)] for finalState_ in self.finals})
         self.define(mDFA_SNT, mDFA_initial, mDFA_finals)
