@@ -1,15 +1,11 @@
 from __future__ import annotations
 from typing import Any
+from PyFA_Exception import StateError, TransitionSymbolError, MiscError
 
-
-# StateError
-# TransitionSymbolError
-# MiscError
-
-#TODO: Add the Error handling with above 3 errors to start with
+#TODO: Implement NFA (without NULL transition)
+#TODO: Implement NFA (with NULL transition)
 
 class TransitionSymbol:
-
     def __init__(self, symbolValue):
         self.symbolValue = symbolValue
 
@@ -58,11 +54,11 @@ class State:
         self.isInitial = isInitial
 
     def validate(self, inputSymbols: list[TransitionSymbol] | list[Any] = None) -> bool:
-        # we just need to validate the outgoing transitions
         if self.outTransitions is None:
-            raise Exception(f"StateError: Outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions( < outgoingTransitions > ) for setting the outgoing transitions. ")
+            raise StateError(f"Outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions( < outgoingTransitions > ) for setting the outgoing transitions. ")
 
         tempInpSymList = list(self.outTransitions.keys())
+
         for i in range(len(tempInpSymList)):
             if not isinstance(tempInpSymList[i], TransitionSymbol):
                 tempInpSymList[i] = TransitionSymbol(tempInpSymList[i])
@@ -73,15 +69,23 @@ class State:
                     inputSymbols[i] = TransitionSymbol(inputSymbols[i])
 
             if any(map(lambda sym: sym == TransitionSymbol("Epsilon"), [*inputSymbols, *tempInpSymList])):
-                raise Exception(f"TransitionSymbolError: Epsilon / NULL transition symbol is not allowed as a state's transition symbol\n\tProvided: {inputSymbols}\n\tOutgoing: {tempInpSymList}")
-
+                raise TransitionSymbolError(
+                    errorMsg = "Epsilon / NULL transition symbol is not allowed as a state's transition symbol",
+                    expected = inputSymbols,
+                    received = tempInpSymList
+                )
             set_tempInpSymList = set(tempInpSymList)
             set_inputSymbols = set(inputSymbols)
             if set_inputSymbols != set_tempInpSymList:
-                raise Exception(f"TransitionSymbolError: the state '{self.name}' has different set of transition symbols than provided\n\tProvided: {inputSymbols}\n\tOutgoing: {tempInpSymList}")
+                raise TransitionSymbolError(
+                    errorMsg=f"The state '{self.name}' has different set of transition symbols than provided",
+                    expected=inputSymbols,
+                    received=tempInpSymList
+                )
+
         for inpSym, state_ in self.outTransitions.items():
             if not isinstance(state_, State):
-                raise Exception(f"StateError: {self.name} -- {inpSym} --> [] is not a State. ")
+                raise StateError(f"{self.name} -- {inpSym} --> [] is not a State.")
         return True  # this state is a valid DFA state
 
     def setTransitions(self, outTransitions: dict[TransitionSymbol, State] | dict[str, State]) -> None:
@@ -101,12 +105,12 @@ class State:
             return self.outTransitions[inputSymbol]
         except KeyError:
             self.debugPrintState()
-            raise Exception(f"TransitionSymbolError: input symbol '{inputSymbol}' was not found for state '{self.name}'")
+            raise TransitionSymbolError(f"Input symbol '{inputSymbol}' was not found for state '{self.name}'")
         except TypeError:
             self.debugPrintState()
-            raise Exception(f"StateError: outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions(< outgoingTransitions >) to set the outgoing transitions for this state. ")
+            raise StateError(f"outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions(< outgoingTransitions >) to set the outgoing transitions for this state.")
         except Exception as err:
-            raise Exception(f"MiscError: {err}")
+            raise MiscError(err)
 
 
 class DFA:
@@ -154,14 +158,18 @@ class DFA:
 
     def validate(self) -> bool:
         if self.initialState is None:
-            raise Exception("StateError: Initial state not found. ")
+            raise StateError("Initial State was not found.")
         if self.finals is None:
             self.finals = []
         if self.states is None:
-            raise Exception("StateError: This DFA has no states. ")
+            raise StateError("This DFA has no states")
         else:
             if self.initialState not in self.states:
-                raise Exception(f"StateError: Initial state is absent from the given set of states.\n\tgiven: {self.initialState}\n\tset of states provided: {self.states}")
+                raise StateError(
+                    errorMsg = "Initial state is absent from the given set of states.",
+                    expected = self.initialState.name,
+                    received = f"A state not in {[_state.name for _state in self.states]}"
+                )
             if self.inputSymbols is None:
                 self.states[0].validate()
                 self.inputSymbols = list(self.states[0].outTransitions.keys())
@@ -185,10 +193,17 @@ class DFA:
                 isNAMEfinal = True
             name_state_mapping[name] = State(name, isInitial=isNAMEinitial, isFinal=isNAMEfinal)
         for name, transitions in stateNtransitions.items():
-            outTransition = {TransitionSymbol(inpSymbol): name_state_mapping[stateName] for inpSymbol, stateName in transitions.items()}
-            name_state_mapping[name].setTransitions(outTransition)
-            if name_state_mapping[name].isInitial:
-                self.initialState = name_state_mapping[name]
+            try:
+                outTransition = {TransitionSymbol(inpSymbol): name_state_mapping[stateName] for inpSymbol, stateName in transitions.items()}
+                name_state_mapping[name].setTransitions(outTransition)
+                if name_state_mapping[name].isInitial:
+                    self.initialState = name_state_mapping[name]
+            except KeyError as keyErr:
+                raise StateError(
+                    errorMsg = f"State with name {keyErr} was not found"
+                )
+            except Exception as err:
+                raise MiscError(err)
 
         self.states = list(name_state_mapping.values())
         self.inputSymbols = list(stateNtransitions[list(stateNtransitions.keys())[0]].keys())
@@ -197,7 +212,7 @@ class DFA:
 
     def check(self, inputTransitionSymbolSequence: list[TransitionSymbol] | list[Any] | str) -> bool:
         if len(inputTransitionSymbolSequence) == 0 or any(map(lambda sym: sym == TransitionSymbol("Epsilon"), inputTransitionSymbolSequence)):
-            raise Exception("TransitionSymbolError: Epsilon transition not in DFA")
+            raise TransitionSymbolError("Epsilon transition not in DFA")
         firstTransitionSymbol = inputTransitionSymbolSequence[0]
         if isinstance(firstTransitionSymbol, TransitionSymbol):
             curState = self.initialState.goto(firstTransitionSymbol)
@@ -236,10 +251,12 @@ class DFA:
 
     @staticmethod
     def _findSetIdxOf(state_: State, partition: list[list[State]]) -> int | None:
+
         for i in range(len(partition)):
             if state_ in partition[i]:
                 return i
         return None
+
     def _make_TSTT(self, state_: State, partition: list[list[State]]) -> tuple[tuple[TransitionSymbol, int]] | tuple[None]:
         setTransitionTuples = []
         for inpSym in self.inputSymbols:
@@ -299,7 +316,6 @@ class DFA:
         mDFA_names = []
         mDFA_listOfTSTT = []
         for SL in curPartition:
-            # each SL will be a state in mDFA
             mDFA_names.append("".join([state_.name for state_ in SL]))
             mDFA_listOfTSTT.append(self._make_TSTT(SL[0], curPartition))
 
@@ -308,7 +324,7 @@ class DFA:
             for setTransitionTuple in state_TSTT:
                 SNT_valueDict[setTransitionTuple[0]] = mDFA_names[setTransitionTuple[1]]
             mDFA_SNT[stateName] = SNT_valueDict
-            
+
         mDFA_initial = mDFA_names[self._findSetIdxOf(self.initialState, curPartition)]
         mDFA_finals = list({mDFA_names[self._findSetIdxOf(finalState_, curPartition)] for finalState_ in self.finals})
         self.define(mDFA_SNT, mDFA_initial, mDFA_finals)
