@@ -2,6 +2,13 @@ from __future__ import annotations
 from typing import Any
 
 class TransitionSymbol:
+    _epsilon = None
+    @staticmethod
+    def Epsilon():
+        if TransitionSymbol._epsilon is None:
+            TransitionSymbol._epsilon = TransitionSymbol("Epsilon")
+        return TransitionSymbol._epsilon
+
     def __init__(self, symbolValue):
         self.symbolValue = symbolValue
 
@@ -10,7 +17,7 @@ class TransitionSymbol:
 
     def __str__(self):
         return self.symbolValue.__repr__()
-      
+        
     @staticmethod
     def _flattenDict(flatable: dict[Any, Any]) -> tuple[tuple[Any]]:
         flattened = list()
@@ -39,3 +46,4 @@ class TransitionSymbol:
             return self.symbolValue == other.symbolValue
         else:
             return self.symbolValue == other
+
