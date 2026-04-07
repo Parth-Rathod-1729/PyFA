@@ -3,12 +3,10 @@ from typing import Any
 from PyFA_Exception import StateError, TransitionSymbolError, MiscError
 from utils import TransitionSymbol
 
-#TODO: Implement NFA (without NULL transition)
-#TODO: Implement NFA (with NULL transition)
+#TODO: Implement NFA
 
-class State:
-    def __init__(self, name: str, isFinal: bool = False, isInitial: bool = False,
-                 outTransitions: dict[TransitionSymbol, State] | dict[Any, State] = None):
+class DFAstate:
+    def __init__(self, name: str, isFinal: bool = False, isInitial: bool = False, outTransitions: dict[TransitionSymbol, DFAstate] | dict[Any, DFAstate] = None):
         self.name = name
         self.outTransitions = outTransitions
         self.isFinal = isFinal
@@ -43,13 +41,12 @@ class State:
                     expected=inputSymbols,
                     received=tempInpSymList
                 )
-
         for inpSym, state_ in self.outTransitions.items():
-            if not isinstance(state_, State):
+            if not isinstance(state_, DFAstate):
                 raise StateError(f"{self.name} -- {inpSym} --> [] is not a State.")
         return True  # this state is a valid DFA state
 
-    def setTransitions(self, outTransitions: dict[TransitionSymbol, State] | dict[str, State]) -> None:
+    def setTransitions(self, outTransitions: dict[TransitionSymbol, DFAstate] | dict[str, DFAstate]) -> None:
         TransitionSymbol_state_mapping = dict()
         for key, value in outTransitions.items():
             if not isinstance(key, TransitionSymbol):
@@ -61,7 +58,7 @@ class State:
     def debugPrintState(self):
         print(f"< name: {self.name}, \noutTransitions: {self.outTransitions}\nisFinal: {self.isFinal}, isInitial: {self.isInitial} >")
 
-    def goto(self, inputSymbol: TransitionSymbol) -> State:
+    def goto(self, inputSymbol: TransitionSymbol) -> DFAstate:
         try:
             return self.outTransitions[inputSymbol]
         except KeyError:
@@ -69,13 +66,13 @@ class State:
             raise TransitionSymbolError(f"Input symbol '{inputSymbol}' was not found for state '{self.name}'")
         except TypeError:
             self.debugPrintState()
-            raise StateError(f"outgoing transitions for the state '{self.name}' are not defined. use State.setTransitions(< outgoingTransitions >) to set the outgoing transitions for this state.")
+            raise StateError(f"outgoing transitions for the state '{self.name}' are not defined. use DFAstate.setTransitions(< outgoingTransitions >) to set the outgoing transitions for this state.")
         except Exception as err:
             raise MiscError(err)
 
 
 class DFA:
-    def __init__(self, states: list[State] = None, initialState: State = None):
+    def __init__(self, states: list[DFAstate] = None, initialState: DFAstate = None):
         self.inputSymbols = None
         self.finals = None
         self.states = states
@@ -144,7 +141,7 @@ class DFA:
         return True  # this DFA is valid
 
     def define(self, stateNtransitions: dict[str, dict[str, str]] | dict[str, dict[TransitionSymbol, str]] | dict[str, dict[Any, str]], initial: str, finals: list[str]) -> None:
-        name_state_mapping: dict[str, State] = {}
+        name_state_mapping: dict[str, DFAstate] = {}
         for name in stateNtransitions.keys():
             isNAMEfinal = False
             isNAMEinitial = False
@@ -152,10 +149,10 @@ class DFA:
                 isNAMEinitial = True
             if name in finals:
                 isNAMEfinal = True
-            name_state_mapping[name] = State(name, isInitial=isNAMEinitial, isFinal=isNAMEfinal)
+            name_state_mapping[name] = DFAstate(name, isInitial=isNAMEinitial, isFinal=isNAMEfinal)
         for name, transitions in stateNtransitions.items():
             try:
-                outTransition = {TransitionSymbol(inpSymbol): name_state_mapping[stateName] for inpSymbol, stateName in transitions.items()}
+                outTransition: dict[TransitionSymbol, DFAstate] = {TransitionSymbol(inpSymbol): name_state_mapping[stateName] for inpSymbol, stateName in transitions.items()}
                 name_state_mapping[name].setTransitions(outTransition)
                 if name_state_mapping[name].isInitial:
                     self.initialState = name_state_mapping[name]
@@ -204,30 +201,29 @@ class DFA:
                     visited |= {neighbourState}
         self.states = sorted(list(visited), key=lambda state_: state_.isInitial, reverse=True)
 
-    def getStateWithName(self, name_: str) -> State | None:
+    def getStateWithName(self, name_: str) -> DFAstate | None:
         for state_ in self.states:
             if state_.name == name_:
                 return state_
         return None
 
     @staticmethod
-    def _findSetIdxOf(state_: State, partition: list[list[State]]) -> int | None:
-
+    def _findSetIdxOf(state_: DFAstate, partition: list[list[DFAstate]]) -> int | None:
         for i in range(len(partition)):
             if state_ in partition[i]:
                 return i
         return None
 
-    def _make_TSTT(self, state_: State, partition: list[list[State]]) -> tuple[tuple[TransitionSymbol, int]] | tuple[None]:
+    def _make_TSTT(self, state_: DFAstate, partition: list[list[DFAstate]]) -> tuple[tuple[TransitionSymbol, int]] | tuple[None]:
         setTransitionTuples = []
         for inpSym in self.inputSymbols:
             setIdx = self._findSetIdxOf(state_.goto(inpSym), partition)
             if setIdx is None:
                 return (None,)
             setTransitionTuples.append((inpSym, setIdx))
-        return tuple(setTransitionTuples)
+        return tuple(setTransitionTuples)  # TSTT
 
-    def _refinePartition(self, partition: list[list[State]]) -> list[list[State]]:
+    def _refinePartition(self, partition: list[list[DFAstate]]) -> list[list[DFAstate]]:
         refinedPartition = []
         for SL in partition:
             CSSLeaderTSTT_CSS = {
@@ -244,7 +240,7 @@ class DFA:
         return refinedPartition
 
     @staticmethod
-    def _printablePartition(partition: list[list[State]]) -> list[list[str]]:
+    def _printablePartition(partition: list[list[DFAstate]]) -> list[list[str]]:
         ret = []
         for SL in partition:
             retSL = [state_.name for state_ in SL]
@@ -273,10 +269,12 @@ class DFA:
             print(f"PI_{i}: ", self._printablePartition(curPartition))
 
         print()
+
         mDFA_SNT = {}
         mDFA_names = []
         mDFA_listOfTSTT = []
         for SL in curPartition:
+            # each SL will be a state in mDFA
             mDFA_names.append("".join([state_.name for state_ in SL]))
             mDFA_listOfTSTT.append(self._make_TSTT(SL[0], curPartition))
 
